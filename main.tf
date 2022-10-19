@@ -1,65 +1,62 @@
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 4.31.0"
-    }
-  }  
-  }
-provider "aws"{
-  region = "us-east-2"
+provider "aws" {
+  access_key = ""
+  secret_key = ""
+  region     = "us-east-1"
 }
 
- resource "aws_vpc" "Main" {                # Creating VPC here
-   cidr_block       = var.main_vpc_cidr     # Defining the CIDR block use 10.0.0.0/24 for demo
-   name = "task3"
-   instance_tenancy = "default"
+resource "aws_vpc" "main" {
+ cidr_block = "10.0.0.0/16"
+ 
+ tags = {
+   Name = "VPC-Remote"
+ }
+}
+
+resource "aws_subnet" "public_subnets" {
+ count             = length(var.public_subnet_cidrs)
+ vpc_id            = aws_vpc.main.id
+ cidr_block        = element(var.public_subnet_cidrs, count.index)
+ availability_zone = element(var.azs, count.index)
+ 
+ tags = {
+   Name = "Public Subnet ${count.index + 1}"
+ }
+}
+ 
+resource "aws_subnet" "private_subnets" {
+ count             = length(var.private_subnet_cidrs)
+ vpc_id            = aws_vpc.main.id
+ cidr_block        = element(var.private_subnet_cidrs, count.index)
+ availability_zone = element(var.azs, count.index)
+ 
+ tags = {
+   Name = "Private Subnet ${count.index + 1}"
+ }
+}
+
+resource "aws_internet_gateway" "gw" {
+ vpc_id = aws_vpc.main.id
+ 
+ tags = {
+   Name = "Remote-VPC IG"
+ }
+}
+
+resource "aws_route_table" "remote_rt" {
+ vpc_id = aws_vpc.main.id
+ 
+ route {
+   cidr_block = "0.0.0.0/0"
+   gateway_id = aws_internet_gateway.gw.id
  }
  
- resource "aws_internet_gateway" "IGW" {    # Creating Internet Gateway
-    vpc_id =  aws_vpc.Main.id               # vpc_id will be generated after we create VPC
+ tags = {
+   Name = "Remote RT"
  }
+}
 
- resource "aws_subnet" "publicsubnets" {    # Creating Public Subnets
-   vpc_id =  aws_vpc.Main.id
-   cidr_block = "${var.public_subnets}"        # CIDR block of public subnets
- }
-                  # Creating Private Subnets
- resource "aws_subnet" "privatesubnets" {
-   vpc_id =  aws_vpc.Main.id
-   cidr_block = "${var.private_subnets}"          # CIDR block of private subnets
- }
- 
- resource "aws_route_table" "PublicRT" {    # Creating RT for Public Subnet
-    vpc_id =  aws_vpc.Main.id
-         route {
-    cidr_block = "0.0.0.0/0"               # Traffic from Public Subnet reaches Internet via Internet Gateway
-    gateway_id = aws_internet_gateway.IGW.id
-     }
- }
-
- resource "aws_route_table" "PrivateRT" {    # Creating RT for Private Subnet
-   vpc_id = aws_vpc.Main.id
-   route {
-   cidr_block = "0.0.0.0/0"             # Traffic from Private Subnet reaches Internet via NAT Gateway
-   nat_gateway_id = aws_nat_gateway.NATgw.id
-   }
- }
-
- resource "aws_route_table_association" "PublicRTassociation" {
-    subnet_id = aws_subnet.publicsubnets.id
-    route_table_id = aws_route_table.PublicRT.id
- }
-
- resource "aws_route_table_association" "PrivateRTassociation" {
-    subnet_id = aws_subnet.privatesubnets.id
-    route_table_id = aws_route_table.PrivateRT.id
- }
- resource "aws_eip" "nateIP" {
-   vpc   = true
- }
-
- resource "aws_nat_gateway" "NATgw" {
-   allocation_id = aws_eip.nateIP.id
-   subnet_id = aws_subnet.publicsubnets.id
- }
+resource "aws_route_table_association" "public_subnet_asso" {
+ count = length(var.public_subnet_cidrs)
+ subnet_id      = element(aws_subnet.public_subnets[*].id, count.index)
+ route_table_id = aws_route_table.remote_rt.id
+}
